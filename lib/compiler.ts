@@ -22,7 +22,7 @@ export function compileContract(specMarkdown: string): CompiledContract {
 }
 
 export function validateProviderContract(value: unknown, specMarkdown: string, compiler: "nvidia" | "gemini" | "ollama"): CompiledContract {
-  const parsed = compiledContractSchema.parse(value); const lines = specMarkdown.split(/\r?\n/);
+  const parsed = compiledContractSchema.parse({ ...(value as object), compiler }); const lines = specMarkdown.split(/\r?\n/);
   const checks = parsed.checks.filter((check) => check.mode !== "judgment" && lines[check.specLine - 1]?.includes(check.requirementQuote));
   const rules = [...new Set([...parsed.unexpressibleRules, ...parsed.checks.filter((check) => check.mode === "judgment").map((check) => check.requirementQuote)])];
   return compiledContractSchema.parse({ checks, unexpressibleRules: rules, compiler });
