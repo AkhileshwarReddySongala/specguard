@@ -19,3 +19,11 @@ describe("compileContract", () => {
     expect(() => compileContract("x".repeat(30_001))).toThrow("30,000");
   });
 });
+
+
+it('normalizes compact hosted checks only when their rule is grounded in the contract', () => {
+  const { validateProviderContract } = require('@/lib/compiler');
+  const contract = validateProviderContract({ checks: [{ mode: 'dependency', rule: 'Never add lodash as a dependency.', package: 'lodash' }], unexpressibleRules: [] }, '- Never add lodash as a dependency.', 'nvidia');
+  expect(contract).toMatchObject({ compiler: 'nvidia', checks: [{ mode: 'dependency', target: 'lodash', specLine: 1 }] });
+});
+

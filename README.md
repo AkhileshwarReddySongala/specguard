@@ -46,3 +46,10 @@ Import this repository into Vercel, add the production environment variables abo
 3. Click its finding to connect contract text to changed code.
 4. Paste a public PR and show contract discovery or the explicit sample-contract choice.
 5. Close with the redacted Codex session-governance demo.
+## Live validation record
+
+- Target: [openai/codex#31939](https://github.com/openai/codex/pull/31939), validated July 17, 2026.
+- Contract discovery: 1.5 seconds; contract size: 22,485 characters.
+- NVIDIA compiler: 30 grounded judgment rules in 42.2 seconds.
+- NVIDIA judgment did not return a valid grounded result within the budget; SpecGuard returned deterministic partial findings in 46.5 seconds, with an honest judgment unavailable diagnostic.
+
