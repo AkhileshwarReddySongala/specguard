@@ -1,0 +1,38 @@
+import { z } from "zod";
+import type { CompiledContract, Finding, PRSnapshot } from "@/lib/contracts";
+
+const modelFindingSchema = z.object({ rule: z.string(), filePath: z.string(), line: z.number().int().positive(), violationType: z.string(), action: z.string(), confidence: z.enum(["high", "low"]) });
+const modelResponseSchema = z.object({ findings: z.array(modelFindingSchema).max(10) });
+
+const outputSchema = {
+  type: "object",
+  properties: { findings: { type: "array", items: { type: "object", properties: { rule: { type: "string" }, filePath: { type: "string" }, line: { type: "integer" }, violationType: { type: "string" }, action: { type: "string" }, confidence: { type: "string", enum: ["high", "low"] } }, required: ["rule", "filePath", "line", "violationType", "action", "confidence"] } } },
+  required: ["findings"],
+} as const;
+
+export async function judgeWithOllama(snapshot: PRSnapshot, contract: CompiledContract): Promise<Finding[]> {
+  if (!contract.unexpressibleRules.length) return [];
+  const baseUrl = process.env.OLLAMA_BASE_URL;
+  if (!baseUrl) throw new Error("Open-source judgment is not configured. Set OLLAMA_BASE_URL to enable it.");
+  const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(process.env.OLLAMA_API_KEY ? { Authorization: `Bearer ${process.env.OLLAMA_API_KEY}` } : {}) },
+    body: JSON.stringify({
+      model: process.env.OLLAMA_MODEL || "gemma4-12b-lmstudio", stream: false, format: outputSchema,
+      messages: [
+        { role: "system", content: "You check only changed code against contract rules. Return JSON only. Never invent files, lines, rules, or evidence." },
+        { role: "user", content: JSON.stringify({ rules: contract.unexpressibleRules, changedFiles: snapshot.changedFiles.map((file) => ({ path: file.path, content: file.content.slice(0, 8000) })) }) },
+      ],
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+  if (!response.ok) throw new Error(`Ollama judgment request failed (${response.status}).`);
+  const payload = await response.json() as { message?: { content?: string } };
+  const parsed = modelResponseSchema.parse(JSON.parse(payload.message?.content || "{}"));
+  return parsed.findings.flatMap((entry, index) => {
+    const file = snapshot.changedFiles.find((candidate) => candidate.path === entry.filePath);
+    if (!file || !contract.unexpressibleRules.includes(entry.rule) || entry.line > file.content.split(/\r?\n/).length) return [];
+    const lineContent = file.content.split(/\r?\n/)[entry.line - 1];
+    return [{ id: `judgment-${index + 1}`, requirementQuote: entry.rule, specLine: 1, filePath: entry.filePath, line: entry.line, diffHunk: snapshot.unifiedDiff.includes(lineContent) ? snapshot.unifiedDiff.slice(0, 1000) : `Pre-existing: ${entry.filePath}:${entry.line}`, violationType: entry.violationType, action: entry.action, source: "llm" as const, confidence: entry.confidence, preExisting: !snapshot.unifiedDiff.includes(lineContent) }];
+  });
+}

@@ -1,17 +1,16 @@
 import { compileContract } from "@/lib/compiler";
+import { compileRequestSchema } from "@/lib/contracts";
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = compileRequestSchema.parse(await request.json());
     const contract = compileContract(body.specMarkdown);
     const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "progress", message: "Parsing contract" })}\n\n`));
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "final", contract })}\n\n`));
-        controller.close();
-      },
-    });
+    const stream = new ReadableStream({ start(controller) {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "progress", message: "Parsing contract" })}\n\n`));
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "final", contract })}\n\n`));
+      controller.close();
+    } });
     return new Response(stream, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to compile contract." }, { status: 400 });
