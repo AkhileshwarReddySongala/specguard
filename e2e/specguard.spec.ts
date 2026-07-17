@@ -7,6 +7,6 @@ test("a demo PR renders an evidence-linked blocked verdict", async ({ page }) =>
   await page.getByRole("button", { name: "ANALYZE PULL REQUEST" }).click();
   await expect(page.getByRole("heading", { name: "MERGE BLOCKED" })).toBeVisible();
   await page.getByRole("option").first().click();
-  await expect(page.getByText("CONTRACT")).toBeVisible();
-  await expect(page.getByText("CHANGED CODE")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /CONTRACT/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /CHANGED CODE/ })).toBeVisible();
 });
