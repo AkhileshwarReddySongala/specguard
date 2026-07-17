@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileContract } from "@/lib/compiler";
+import { compileContract, validateProviderContract } from "@/lib/compiler";
 
 describe("compileContract", () => {
   it("maps only allowlisted deterministic rule types", () => {
