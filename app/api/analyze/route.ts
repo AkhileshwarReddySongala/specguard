@@ -2,4 +2,21 @@ import { analyze, deriveVerdict } from "@/lib/analyzer";
 import { analyzeRequestSchema } from "@/lib/contracts";
 import { fetchSnapshot } from "@/lib/github";
 import { judgeWithProviders } from "@/lib/providers";
-export async function POST(request: Request) { try { const body = analyzeRequestSchema.parse(await request.json()); const snapshot = await fetchSnapshot(body.prUrl); const deterministic = analyze(snapshot, body.compiledContract); try { const judgment = await judgeWithProviders(snapshot, body.compiledContract); const findings = [...deterministic.findings, ...judgment.findings]; return Response.json({ ...deterministic, findings, ...deriveVerdict(findings, body.compiledContract.checks), judgmentUnavailable: false, providerStatus: judgment.provider }); } catch (error) { return Response.json({ ...deterministic, judgmentUnavailable: body.compiledContract.unexpressibleRules.length > 0, providerStatus: "deterministic-only", diagnostics: [...deterministic.diagnostics, "AI judgment unavailable; deterministic findings remain valid."] }); } } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Analysis failed." }, { status: 400 }); } }
+
+export async function POST(request: Request) {
+  try {
+    const body = analyzeRequestSchema.parse(await request.json());
+    const snapshot = await fetchSnapshot(body.prUrl);
+    const deterministic = analyze(snapshot, body.compiledContract);
+    try {
+      const judgment = await judgeWithProviders(snapshot, body.compiledContract);
+      const findings = [...deterministic.findings, ...judgment.findings];
+      const diagnostics = deterministic.diagnostics.filter((diagnostic) => !diagnostic.includes("require AI judgment"));
+      return Response.json({ ...deterministic, findings, diagnostics, ...deriveVerdict(findings, body.compiledContract.checks), judgmentUnavailable: false, providerStatus: judgment.provider });
+    } catch {
+      return Response.json({ ...deterministic, judgmentUnavailable: body.compiledContract.unexpressibleRules.length > 0, providerStatus: "deterministic-only", diagnostics: [...deterministic.diagnostics, "AI judgment unavailable; deterministic findings remain valid."] });
+    }
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Analysis failed." }, { status: 400 });
+  }
+}

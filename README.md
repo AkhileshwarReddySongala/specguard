@@ -48,8 +48,8 @@ Import this repository into Vercel, add the production environment variables abo
 5. Close with the redacted Codex session-governance demo.
 ## Live validation record
 
-- Target: [openai/codex#31939](https://github.com/openai/codex/pull/31939), validated July 17, 2026.
-- Contract discovery: 1.5 seconds; contract size: 22,485 characters.
-- NVIDIA compiler: 30 grounded judgment rules in 42.2 seconds.
-- NVIDIA judgment did not return a valid grounded result within the budget; SpecGuard returned deterministic partial findings in 46.5 seconds, with an honest judgment unavailable diagnostic.
+- Target: [openai/codex#31939](https://github.com/openai/codex/pull/31939), validated July 19, 2026.
+- Contract discovery: 1.7 seconds; contract size: 22,485 characters.
+- Full-contract NVIDIA compilation reached its 45-second budget and correctly returned the deterministic baseline (12 checks and 30 bounded judgment rules).
+- A live NVIDIA judgment run over changed-hunk context completed in 8.3 seconds with a grounded response, provider status `nvidia`, and no findings. This compact-rule validation does not claim full-contract judgment coverage.
 
