@@ -50,6 +50,6 @@ Import this repository into Vercel, add the production environment variables abo
 
 - Target: [openai/codex#31939](https://github.com/openai/codex/pull/31939), validated July 19, 2026.
 - Contract discovery: 1.7 seconds; contract size: 22,485 characters.
-- Full-contract NVIDIA compilation reached its 45-second budget and correctly returned the deterministic baseline (12 checks and 30 bounded judgment rules).
+- Batched full-contract compilation preserved all 211 normalized rules and completed at the 45.2-second stage cap. It returned 13 deterministic checks and 198 source-linked judgment rules; NVIDIA partial-batch recovery was labeled with `invalid_output` and `timeout` diagnostics rather than treated as enforcement.
 - A live NVIDIA judgment run over changed-hunk context completed in 8.3 seconds with a grounded response, provider status `nvidia`, and no findings. This compact-rule validation does not claim full-contract judgment coverage.
 
