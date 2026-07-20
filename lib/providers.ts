@@ -145,7 +145,7 @@ async function compileNvidiaBatch(rules: ContractRule[], options: RunOptions): P
   const { messages } = compileMessages(rules); const diagnostics: ProviderDiagnostic[] = [];
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try { return { checks: validateProviderBatch(compileResponseSchema.parse(await nvidia(messages, options, 800)), rules, "nvidia"), provider: "nvidia", diagnostics }; }
-    catch (error) { const failure = error instanceof ProviderFailure ? error : new ProviderFailure("invalid_output", "NVIDIA batch validation failed."); diagnostics.push(failure.code); if (failure.code === "cancelled" || !["gateway_timeout", "timeout", "invalid_output"].includes(failure.code) || attempt === 1) throw failure; options.onProgress?.({ phase: "compile", completedRules: 0, totalRules: 0, completedBatches: 0, totalBatches: 0, provider: "nvidia", status: "retrying" }); }
+    catch (error) { const failure = error instanceof ProviderFailure ? error : new ProviderFailure("invalid_output", "NVIDIA batch validation failed."); diagnostics.push(failure.code); if (failure.code === "cancelled" || !["gateway_timeout", "timeout", "invalid_output"].includes(failure.code) || attempt === 1) throw failure; }
   }
   throw new ProviderFailure("invalid_output", "NVIDIA batch failed.");
 }
@@ -203,7 +203,7 @@ export function buildJudgmentContext(snapshot: PRSnapshot, rules: ContractRule[]
 async function withJudgmentProvider<T>(messages: unknown, schema: unknown, prompt: string, parse: (value: unknown) => T, options: RunOptions): Promise<{ value: T; provider: Provider; diagnostics: ProviderDiagnostic[] }> {
   const diagnostics: ProviderDiagnostic[] = [];
   if (process.env.NVIDIA_API_KEY) {
-    for (let attempt = 0; attempt < 2; attempt += 1) try { return { value: parse(await nvidia(messages, options, 2048)), provider: "nvidia", diagnostics }; } catch (error) { const code = failureCode(error); diagnostics.push(code); if (code === "cancelled") throw error; if (!["gateway_timeout", "timeout", "invalid_output"].includes(code) || attempt === 1) break; options.onProgress?.({ phase: "judgment", completedRules: 0, totalRules: 0, completedBatches: 0, totalBatches: 0, provider: "nvidia", status: "retrying" }); }
+    for (let attempt = 0; attempt < 2; attempt += 1) try { return { value: parse(await nvidia(messages, options, 2048)), provider: "nvidia", diagnostics }; } catch (error) { const code = failureCode(error); diagnostics.push(code); if (code === "cancelled") throw error; if (!["gateway_timeout", "timeout", "invalid_output"].includes(code) || attempt === 1) break; }
   }
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_MODEL) try { return { value: parse(await gemini(prompt, schema, options, 2048)), provider: "gemini", diagnostics }; } catch (error) { const code = failureCode(error); diagnostics.push(code); if (code === "cancelled") throw error; }
   try { return { value: parse(await ollama(messages, schema, options)), provider: "ollama", diagnostics }; } catch (error) { const code = failureCode(error); diagnostics.push(code); throw new ProviderFailure(code, "No AI judgment provider completed this batch."); }

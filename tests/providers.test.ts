@@ -34,6 +34,12 @@ describe("rate-aware hosted provider boundary", () => {
     expect(contract.sourceRules).toHaveLength(360); expect(contract.unexpressibleRules).toHaveLength(360);
     expect(fetchSpy).toHaveBeenCalledTimes(45); expect(fakeTime).toBeGreaterThanOrEqual(88_000); expect(providerStateForTests().requestsInWindow).toBeLessThanOrEqual(30);
   });
+  it("keeps live progress totals intact while retrying a batch", async () => {
+    process.env.NVIDIA_API_KEY = "test-key"; let calls = 0; const progress: Array<{ completedRules: number; totalRules: number }> = [];
+    globalThis.fetch = vi.fn(async () => { calls += 1; return calls === 1 ? nvidiaResponse({ broken: true }) : nvidiaResponse({ assignments: [] }); }) as typeof fetch;
+    await compileWithProviders("- Review risky changes.", { onProgress: (event) => progress.push(event) });
+    expect(calls).toBe(2); expect(progress).toEqual([{ completedRules: 1, totalRules: 1, completedBatches: 1, totalBatches: 1, phase: "compile", provider: "nvidia", status: "running" }]);
+  });
   it("retries a malformed NVIDIA batch once before accepting output", async () => {
     process.env.NVIDIA_API_KEY = "test-key"; let calls = 0;
     globalThis.fetch = vi.fn(async () => { calls += 1; return calls === 1 ? nvidiaResponse({ broken: true }) : nvidiaResponse({ assignments: [] }); }) as typeof fetch;
