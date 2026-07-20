@@ -15,7 +15,7 @@ export async function POST(request: Request) {
         try {
           emit({ type: "progress", stage: "validating", message: "Validating contract text" });
           emit({ type: "progress", stage: "compiling", message: "Compiling deterministic checks" });
-          const contract = await compileWithProviders(body.specMarkdown, { signal: request.signal, onProgress: (progress) => emit({ type: "progress", stage: "ai-compile", message: `AI compilation ${progress.completedRules}/${progress.totalRules} rules`, ...progress }) });
+          const contract = await compileWithProviders(body.specMarkdown, { signal: request.signal });
           emit({ type: "progress", stage: "compiled", message: `${contract.checks.length} safe checks compiled · ${contract.unexpressibleRules.length} AI judgment rules`, checks: contract.checks.length, judgmentRules: contract.unexpressibleRules.length });
           emit({ type: "final", contract });
         } catch (error) { emit({ type: "error", message: error instanceof Error ? error.message : "Unable to compile contract." }); }

@@ -7,6 +7,7 @@ SpecGuard proves whether AI-written code matches what humans authorized. It comp
 ```bash
 npm install
 copy .env.example .env.local
+npm run lint
 npm test
 npm run dev
 ```
@@ -23,6 +24,7 @@ Open `http://localhost:3000`. The committed demo scenarios work without credenti
 ## Verification
 
 ```bash
+npm run lint
 npm test
 npx tsc --noEmit
 npm run build
@@ -46,10 +48,23 @@ Import this repository into Vercel, add the production environment variables abo
 3. Click its finding to connect contract text to changed code.
 4. Paste a public PR and show contract discovery or the explicit sample-contract choice.
 5. Close with the redacted Codex session-governance demo.
-## Live validation record
+## Evidence boundary and validation records
 
-- Target: [openai/codex#31939](https://github.com/openai/codex/pull/31939), validated July 19, 2026.
-- Contract discovery: 1.7 seconds; contract size: 22,485 characters.
-- Batched full-contract compilation preserved all 211 normalized rules and completed at the 45.2-second stage cap. It returned 13 deterministic checks and 198 source-linked judgment rules; NVIDIA partial-batch recovery was labeled with `invalid_output` and `timeout` diagnostics rather than treated as enforcement.
-- A live NVIDIA judgment run over changed-hunk context completed in 8.3 seconds with a grounded response, provider status `nvidia`, and no findings. This compact-rule validation does not claim full-contract judgment coverage.
+SpecGuard's deterministic compiler is deliberately narrow and entirely code-owned. It only emits JS/TS-safe checks from explicit contract templates: restricted imports or syntax, protected paths, named dependency changes, and scoped route-to-test requirements. Comments, documentation, Python-only rules, and ambiguous requirements stay as bounded AI judgment rules. Model output can report a grounded finding, but it cannot create or configure a deterministic check.
 
+The committed proof scenarios work without GitHub or AI credentials and verify exact evidence coordinates through the live local routes:
+
+| Scenario | Expected verdict | Evidence |
+| --- | --- | --- |
+| Forbidden import | Merge blocked | contract line 2 -> `src/proof.ts:1` |
+| Protected path change | Merge blocked | contract line 2 -> `.github/workflows/release.yml:1` |
+| Missing API test | Changes required | contract line 2 -> `app/api/health/route.ts:1` |
+
+Observed public-PR judgment runs are recorded as partial rather than treated as approvals:
+
+| PR | Provider outcome | Coverage | Verdict |
+| --- | --- | --- | --- |
+| [apache/airflow#70098](https://github.com/apache/airflow/pull/70098) | NVIDIA invalid output and timeout recovery | 107/115 selected assessed; 42 scoped out; 8 unassessed | Approved with warnings |
+| [openai/codex#31917](https://github.com/openai/codex/pull/31917) | NVIDIA invalid output and timeout recovery | 94/110 selected assessed; 31 scoped out; 16 unassessed | Approved with warnings |
+
+An incomplete AI run is always labeled `APPROVED WITH WARNINGS` and is capped below 80. A full approval requires complete selected AI coverage; deterministic merge blocks remain effective even if AI judgment is partial. The current release does not claim a verified real-PR blocked, changes-required, or fully covered approval record until those runs complete successfully.

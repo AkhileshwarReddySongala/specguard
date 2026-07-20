@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { compileContract, validateProviderBatch } from "@/lib/compiler";
-import type { CompiledCheck, CompiledContract, ContractRule, Finding, JudgmentCoverage, JudgmentMode, PRSnapshot, ProviderDiagnostic, ProviderStatus } from "@/lib/contracts";
+import { compileContract } from "@/lib/compiler";
+import type { CompiledContract, ContractRule, Finding, JudgmentCoverage, JudgmentMode, PRSnapshot, ProviderDiagnostic, ProviderStatus } from "@/lib/contracts";
 
 export const AI_BATCH_SIZE = 8;
 export const AI_CONCURRENCY = 4;
@@ -12,20 +12,16 @@ const MAX_JUDGMENT_CONTEXT = 28_000;
 
 type Provider = "nvidia" | "gemini" | "ollama";
 type FailureCode = ProviderDiagnostic;
-type Progress = { phase: "compile" | "judgment"; completedRules: number; totalRules: number; completedBatches: number; totalBatches: number; provider?: Provider; status?: "running" | "retrying" | "waiting" | "partial" };
-type RunOptions = { signal?: AbortSignal; onProgress?: (progress: Progress) => void; deadlineAt?: number };
-type BatchResult = { checks: CompiledCheck[]; provider?: Provider; diagnostics: ProviderDiagnostic[]; unassessed?: boolean };
-type JudgmentBatchResult = { findings: Finding[]; provider?: Provider; diagnostics: ProviderDiagnostic[]; unassessed: boolean };
+type Progress = { phase: "compile" | "judgment"; completedRules: number; totalRules: number; completedBatches: number; totalBatches: number; provider?: Provider; status?: "running" | "retrying" | "waiting" | "fallback" | "partial" };
+type RunOptions = { signal?: AbortSignal; onProgress?: (progress: Progress) => void; deadlineAt?: number; skipNvidia?: boolean };
+type JudgmentBatchResult = { findings: Finding[]; providers: Provider[]; diagnostics: ProviderDiagnostic[]; unassessedRules: number };
 
 class ProviderFailure extends Error {
-  constructor(readonly code: FailureCode, message: string) { super(message); }
+  constructor(readonly code: FailureCode, message: string, readonly diagnostics: ProviderDiagnostic[] = []) { super(message); }
 }
 
-const assignmentSchema = z.object({ ruleId: z.string(), mode: z.enum(["restricted-import", "restricted-syntax", "path-glob", "dependency", "required-test", "judgment"]), target: z.string().optional(), package: z.string().optional(), path: z.string().optional(), pattern: z.string().optional() });
-const compileResponseSchema = z.object({ assignments: z.array(assignmentSchema).max(AI_BATCH_SIZE) });
 const findingSchema = z.object({ ruleId: z.string(), filePath: z.string(), line: z.number().int().positive(), violationType: z.string(), action: z.string(), confidence: z.enum(["high", "low"]) });
 const responseSchema = z.object({ findings: z.array(findingSchema).max(10) });
-const compileJsonSchema = { type: "object", properties: { assignments: { type: "array", maxItems: AI_BATCH_SIZE, items: { type: "object", properties: { ruleId: { type: "string" }, mode: { type: "string", enum: ["restricted-import", "restricted-syntax", "path-glob", "dependency", "required-test", "judgment"] }, target: { type: "string" } }, required: ["ruleId", "mode"] } } }, required: ["assignments"] };
 const judgmentJsonSchema = { type: "object", properties: { findings: { type: "array", maxItems: 10, items: { type: "object", properties: { ruleId: { type: "string" }, filePath: { type: "string" }, line: { type: "integer" }, violationType: { type: "string" }, action: { type: "string" }, confidence: { type: "string", enum: ["high", "low"] } }, required: ["ruleId", "filePath", "line", "violationType", "action", "confidence"] } } }, required: ["findings"] };
 const judgmentSystem = "Return only JSON matching the supplied schema. Assess only the supplied changed lines. A finding must copy a supplied ruleId, file path, and changed line number exactly. Never report a pre-existing line, invent evidence, or create a finding when the changed code complies.";
 
@@ -137,37 +133,11 @@ async function ollama(messages: unknown, schema: unknown, options: RunOptions) {
   catch { throw new ProviderFailure("invalid_output", "Ollama returned invalid JSON."); }
 }
 
-function compileMessages(rules: ContractRule[]) {
-  const prompt = { rules: rules.map(({ id, requirementQuote, specLine, level }) => ({ id, rule: requirementQuote, specLine, level })) };
-  return { messages: [{ role: "system", content: "Return JSON only: {assignments:[{ruleId,mode,target?}]}. Each assignment must reference only a supplied ruleId. Use one allowlisted mode (restricted-import, restricted-syntax, path-glob, dependency, required-test) only when its target is explicit. Otherwise use judgment with no target. Never paraphrase rules or create executable configuration." }, { role: "user", content: JSON.stringify(prompt) }], prompt: JSON.stringify(prompt) };
-}
-async function compileNvidiaBatch(rules: ContractRule[], options: RunOptions): Promise<BatchResult> {
-  const { messages } = compileMessages(rules); const diagnostics: ProviderDiagnostic[] = [];
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try { return { checks: validateProviderBatch(compileResponseSchema.parse(await nvidia(messages, options, 800)), rules, "nvidia"), provider: "nvidia", diagnostics }; }
-    catch (error) { const failure = error instanceof ProviderFailure ? error : new ProviderFailure("invalid_output", "NVIDIA batch validation failed."); diagnostics.push(failure.code); if (failure.code === "cancelled" || !["gateway_timeout", "timeout", "invalid_output"].includes(failure.code) || attempt === 1) throw failure; }
-  }
-  throw new ProviderFailure("invalid_output", "NVIDIA batch failed.");
-}
-async function compileBatch(rules: ContractRule[], options: RunOptions): Promise<BatchResult> {
-  const diagnostics: ProviderDiagnostic[] = [];
-  if (process.env.NVIDIA_API_KEY) try { return await compileNvidiaBatch(rules, options); } catch (error) { const code = failureCode(error); diagnostics.push(code); if (code === "cancelled") throw error; }
-  if (process.env.GEMINI_API_KEY && process.env.GEMINI_MODEL) try { const { prompt } = compileMessages(rules); return { checks: validateProviderBatch(compileResponseSchema.parse(await gemini(prompt, compileJsonSchema, options, 800)), rules, "gemini"), provider: "gemini", diagnostics }; } catch (error) { const code = failureCode(error); diagnostics.push(code); if (code === "cancelled") throw error; }
-  return { checks: [], diagnostics, unassessed: true };
-}
+/** Providers never compile enforcement configuration. They only judge changed hunks. */
 export async function compileWithProviders(spec: string, options: RunOptions = {}): Promise<CompiledContract> {
-  const baseline = compileContract(spec); const candidates = baseline.unexpressibleRules;
-  if (!candidates.length) return baseline;
-  const deadlineAt = deadlineFor(options); const batches = chunk(candidates, AI_BATCH_SIZE); let completedRules = 0; let completedBatches = 0;
-  const results = await pooled(batches, AI_CONCURRENCY, async (batch) => {
-    const result = await compileBatch(batch, { ...options, deadlineAt });
-    completedRules += batch.length; completedBatches += 1;
-    options.onProgress?.({ phase: "compile", completedRules, totalRules: candidates.length, completedBatches, totalBatches: batches.length, provider: result.provider, status: result.unassessed ? "partial" : "running" });
-    return result;
-  });
-  const checks = [...baseline.checks]; for (const result of results) for (const check of result.checks) if (!checks.some((existing) => existing.id === check.id) && checks.length < 500) checks.push(check);
-  const checked = new Set(checks.map((check) => check.id)); const compiler = results.some((result) => result.provider === "nvidia") ? "nvidia" : results.some((result) => result.provider === "gemini") ? "gemini" : "deterministic-fallback";
-  return { ...baseline, checks, unexpressibleRules: baseline.unexpressibleRules.filter((rule) => !checked.has(rule.id)), compiler, compilerDiagnostics: [...new Set(results.flatMap((result) => result.diagnostics))].slice(0, 20) };
+  const contract = compileContract(spec);
+  options.onProgress?.({ phase: "compile", completedRules: contract.sourceRules.length, totalRules: contract.sourceRules.length, completedBatches: 0, totalBatches: 0, status: "running" });
+  return contract;
 }
 
 function changedLines(snapshot: PRSnapshot, path: string) {
@@ -200,28 +170,70 @@ export function buildJudgmentContext(snapshot: PRSnapshot, rules: ContractRule[]
   });
   return { rules: rules.map(({ id, requirementQuote, specLine, level }) => ({ id, rule: requirementQuote, specLine, level })), changedFiles };
 }
-async function withJudgmentProvider<T>(messages: unknown, schema: unknown, prompt: string, parse: (value: unknown) => T, options: RunOptions): Promise<{ value: T; provider: Provider; diagnostics: ProviderDiagnostic[] }> {
+async function withJudgmentProvider<T>(messages: unknown, schema: unknown, prompt: string, parse: (value: unknown) => T, options: RunOptions, allowFallback = true): Promise<{ value: T; provider: Provider; diagnostics: ProviderDiagnostic[] }> {
   const diagnostics: ProviderDiagnostic[] = [];
-  if (process.env.NVIDIA_API_KEY) {
-    for (let attempt = 0; attempt < 2; attempt += 1) try { return { value: parse(await nvidia(messages, options, 2048)), provider: "nvidia", diagnostics }; } catch (error) { const code = failureCode(error); diagnostics.push(code); if (code === "cancelled") throw error; if (!["gateway_timeout", "timeout", "invalid_output"].includes(code) || attempt === 1) break; }
+  if (process.env.NVIDIA_API_KEY && !options.skipNvidia) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try { return { value: parse(await nvidia(messages, options, 2048)), provider: "nvidia", diagnostics }; }
+      catch (error) {
+        const code = failureCode(error); diagnostics.push(code);
+        if (code === "cancelled") throw error;
+        if (!["gateway_timeout", "timeout", "invalid_output"].includes(code) || attempt === 1) break;
+      }
+    }
+    if (!allowFallback) throw new ProviderFailure(diagnostics.at(-1) ?? "invalid_output", "NVIDIA judgment batch needs recovery.", diagnostics);
   }
-  if (process.env.GEMINI_API_KEY && process.env.GEMINI_MODEL) try { return { value: parse(await gemini(prompt, schema, options, 2048)), provider: "gemini", diagnostics }; } catch (error) { const code = failureCode(error); diagnostics.push(code); if (code === "cancelled") throw error; }
-  try { return { value: parse(await ollama(messages, schema, options)), provider: "ollama", diagnostics }; } catch (error) { const code = failureCode(error); diagnostics.push(code); throw new ProviderFailure(code, "No AI judgment provider completed this batch."); }
+  if (!allowFallback) throw new ProviderFailure("cooldown", "No NVIDIA judgment provider is configured.", diagnostics);
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_MODEL) {
+    try { return { value: parse(await gemini(prompt, schema, options, 2048)), provider: "gemini", diagnostics }; }
+    catch (error) { const code = failureCode(error); diagnostics.push(code); if (code === "cancelled") throw error; }
+  }
+  try { return { value: parse(await ollama(messages, schema, options)), provider: "ollama", diagnostics }; }
+  catch (error) {
+    const code = failureCode(error); diagnostics.push(code);
+    throw new ProviderFailure(code, "No AI judgment provider completed this batch.", diagnostics);
+  }
 }
-async function judgeBatch(snapshot: PRSnapshot, rules: ContractRule[], batchIndex: number, options: RunOptions): Promise<JudgmentBatchResult> {
+async function judgeBatch(snapshot: PRSnapshot, rules: ContractRule[], batchIndex: number, options: RunOptions, allowFallback = true): Promise<JudgmentBatchResult> {
   const context = buildJudgmentContext(snapshot, rules);
-  if (!context.changedFiles.length) return { findings: [], diagnostics: [], unassessed: false };
+  if (!context.changedFiles.length) return { findings: [], providers: [], diagnostics: [], unassessedRules: 0 };
   const messages = [{ role: "system", content: judgmentSystem }, { role: "user", content: JSON.stringify(context) }];
   try {
-    const result = await withJudgmentProvider(messages, judgmentJsonSchema, `${judgmentSystem}\n${JSON.stringify(context)}`, (value) => responseSchema.parse(value), options);
+    const result = await withJudgmentProvider(messages, judgmentJsonSchema, `${judgmentSystem}\n${JSON.stringify(context)}`, (value) => responseSchema.parse(value), options, allowFallback);
     const ruleMap = new Map(rules.map((rule) => [rule.id, rule]));
     const findings = result.value.findings.flatMap((entry, index) => {
       const file = snapshot.changedFiles.find((candidate) => candidate.path === entry.filePath); const rule = ruleMap.get(entry.ruleId);
       if (!file || !rule || !changedLines(snapshot, entry.filePath).has(entry.line)) return [];
       return [{ id: `judgment-${batchIndex + 1}-${index + 1}`, requirementQuote: rule.requirementQuote, specLine: rule.specLine, filePath: entry.filePath, line: entry.line, diffHunk: hunk(snapshot, entry.filePath, entry.line), violationType: entry.violationType, action: entry.action, source: "llm" as const, confidence: entry.confidence, preExisting: false }];
     });
-    return { findings, provider: result.provider, diagnostics: result.diagnostics, unassessed: false };
-  } catch (error) { const code = failureCode(error); if (code === "cancelled") throw error; return { findings: [], diagnostics: [code], unassessed: true }; }
+    return { findings, providers: [result.provider], diagnostics: result.diagnostics, unassessedRules: 0 };
+  } catch (error) {
+    const code = failureCode(error); if (code === "cancelled") throw error;
+    const diagnostics = error instanceof ProviderFailure && error.diagnostics.length ? error.diagnostics : [code];
+    return { findings: [], providers: [], diagnostics, unassessedRules: rules.length };
+  }
+}
+function mergeBatchResults(results: JudgmentBatchResult[], diagnostics: ProviderDiagnostic[] = []): JudgmentBatchResult {
+  return { findings: results.flatMap((result) => result.findings), providers: [...new Set(results.flatMap((result) => result.providers))], diagnostics: [...new Set([...diagnostics, ...results.flatMap((result) => result.diagnostics)])], unassessedRules: results.reduce((total, result) => total + result.unassessedRules, 0) };
+}
+async function recoverJudgmentBatch(snapshot: PRSnapshot, batch: ContractRule[], batchIndex: number, options: RunOptions, completedRules: number, totalRules: number, completedBatches: number, totalBatches: number): Promise<JudgmentBatchResult> {
+  if (!process.env.NVIDIA_API_KEY) return judgeBatch(snapshot, batch, batchIndex, options);
+  const initial = await judgeBatch(snapshot, batch, batchIndex, options, false);
+  if (!initial.unassessedRules) return initial;
+  const recoverable = initial.diagnostics.some((code) => ["gateway_timeout", "timeout", "invalid_output"].includes(code));
+  if (!recoverable || batch.length === 1) {
+    const fallback = await judgeBatch(snapshot, batch, batchIndex, { ...options, skipNvidia: true });
+    return mergeBatchResults([fallback], initial.diagnostics);
+  }
+  options.onProgress?.({ phase: "judgment", completedRules, totalRules, completedBatches, totalBatches, status: "retrying" });
+  const smallerBatches = chunk(batch, Math.ceil(batch.length / 2));
+  const recovered: JudgmentBatchResult[] = [];
+  for (const [index, smaller] of smallerBatches.entries()) {
+    const retried = await judgeBatch(snapshot, smaller, batchIndex * 10 + index, options, false);
+    if (!retried.unassessedRules) recovered.push(retried);
+    else recovered.push(await mergeBatchResults([await judgeBatch(snapshot, smaller, batchIndex * 10 + index, { ...options, skipNvidia: true })], retried.diagnostics));
+  }
+  return mergeBatchResults(recovered, initial.diagnostics);
 }
 function providerStatus(providers: Provider[]): ProviderStatus { const unique = [...new Set(providers)]; return unique.length === 0 ? "deterministic-only" : unique.length === 1 ? unique[0] : "mixed"; }
 export async function judgeWithProviders(snapshot: PRSnapshot, contract: CompiledContract, mode: JudgmentMode = "relevant", options: RunOptions = {}): Promise<{ findings: Finding[]; provider: ProviderStatus; coverage: JudgmentCoverage; diagnostics: string[] }> {
@@ -229,12 +241,12 @@ export async function judgeWithProviders(snapshot: PRSnapshot, contract: Compile
   if (!selected.length) return { findings: [], provider: "deterministic-only", diagnostics: [], coverage: { mode, totalRules: contract.unexpressibleRules.length, scopeExcludedRules: relevant.excluded.length, selectedRules: 0, completedRules: 0, unassessedRules: 0, complete: true, providersUsed: ["deterministic-only"] } };
   let completedRules = 0; let completedBatches = 0;
   const results = await pooled(batches, AI_CONCURRENCY, async (batch, index) => {
-    const result = await judgeBatch(snapshot, batch, index, { ...options, deadlineAt });
-    completedRules += batch.length; completedBatches += 1;
-    options.onProgress?.({ phase: "judgment", completedRules, totalRules: selected.length, completedBatches, totalBatches: batches.length, provider: result.provider, status: result.unassessed ? "partial" : "running" });
+    const result = await recoverJudgmentBatch(snapshot, batch, index, { ...options, deadlineAt }, completedRules, selected.length, completedBatches, batches.length);
+    completedRules += batch.length - result.unassessedRules; completedBatches += 1;
+    options.onProgress?.({ phase: "judgment", completedRules, totalRules: selected.length, completedBatches, totalBatches: batches.length, provider: result.providers.at(-1), status: result.unassessedRules ? "partial" : result.diagnostics.length ? "fallback" : "running" });
     return result;
   });
-  const providers = results.flatMap((result) => result.provider ? [result.provider] : []);
-  const unassessedRules = results.reduce((total, result, index) => total + (result.unassessed ? batches[index].length : 0), 0);
+  const providers = results.flatMap((result) => result.providers);
+  const unassessedRules = results.reduce((total, result) => total + result.unassessedRules, 0);
   return { findings: results.flatMap((result) => result.findings), provider: providerStatus(providers), diagnostics: [...new Set(results.flatMap((result) => result.diagnostics))], coverage: { mode, totalRules: contract.unexpressibleRules.length, scopeExcludedRules: relevant.excluded.length, selectedRules: selected.length, completedRules: selected.length - unassessedRules, unassessedRules, complete: unassessedRules === 0, providersUsed: providers.length ? [...new Set(providers)] : ["deterministic-only"] } };
 }

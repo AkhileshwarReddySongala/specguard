@@ -54,13 +54,17 @@ export function deriveVerdict(findings: Finding[], checks: CompiledCheck[]): { v
   if (findings.length > 0) return { verdict: "approved_with_warnings", complianceScore };
   return { verdict: "approved", complianceScore };
 }
-export function applyCoverageVerdict(outcome: { verdict: Verdict; complianceScore: number }, coverage: JudgmentCoverage) {
-  if (!coverage.complete && outcome.verdict === "approved") return { verdict: "approved_with_warnings" as const, complianceScore: Math.min(outcome.complianceScore, 79) };
+export function applyCoverageVerdict(outcome: { verdict: Verdict; complianceScore: number }, coverage: JudgmentCoverage, deterministicCheckCount = 1) {
+  const hasNoAssessableRules = deterministicCheckCount === 0 && coverage.totalRules === 0;
+  if ((!coverage.complete || hasNoAssessableRules) && outcome.verdict === "approved") {
+    return { verdict: "approved_with_warnings" as const, complianceScore: Math.min(outcome.complianceScore, 79) };
+  }
   return outcome;
 }
 export function analyze(snapshot: PRSnapshot, contract: CompiledContract): AnalysisResult {
   const findings = contract.checks.flatMap((check) => runCheck(check, snapshot));
   const coverage: JudgmentCoverage = { mode: "relevant", totalRules: contract.unexpressibleRules.length, scopeExcludedRules: 0, selectedRules: 0, completedRules: 0, unassessedRules: contract.unexpressibleRules.length, complete: contract.unexpressibleRules.length === 0, providersUsed: ["deterministic-only"] };
-  const { verdict, complianceScore } = deriveVerdict(findings, contract.checks);
-  return { snapshot, contract, findings, verdict, complianceScore, diagnostics: contract.unexpressibleRules.length ? [`${contract.unexpressibleRules.length} rule(s) await AI judgment.`] : [], judgmentUnavailable: contract.unexpressibleRules.length > 0, providerStatus: "deterministic-only", judgmentCoverage: coverage };
+  const outcome = applyCoverageVerdict(deriveVerdict(findings, contract.checks), coverage, contract.checks.length);
+  const diagnostics = contract.unexpressibleRules.length ? [`${contract.unexpressibleRules.length} rule(s) await AI judgment.`] : contract.checks.length === 0 ? ["No code-enforceable checks compiled and no AI-judgeable rules were found."] : [];
+  return { snapshot, contract, findings, ...outcome, diagnostics, judgmentUnavailable: contract.unexpressibleRules.length > 0, providerStatus: "deterministic-only", judgmentCoverage: coverage };
 }
