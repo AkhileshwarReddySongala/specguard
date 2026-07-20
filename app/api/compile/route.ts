@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { compileWithProviders } from "@/lib/providers";
 import { compileRequestSchema } from "@/lib/contracts";
 
@@ -19,5 +20,5 @@ export async function POST(request: Request) {
       },
     });
     return new Response(stream, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
-  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Unable to compile contract." }, { status: 400 }); }
+  } catch (error) { return Response.json({ error: error instanceof z.ZodError ? error.issues[0]?.message || "Invalid compilation request." : error instanceof Error ? error.message : "Unable to compile contract." }, { status: 400 }); }
 }

@@ -24,8 +24,12 @@ describe("compileContract", () => {
     expect(contract.sourceRules).toHaveLength(211);
     expect(contract.unexpressibleRules.at(-1)).toMatchObject({ id: "rule-211", specLine: 211 });
   });
-  it("rejects empty and oversized contracts", () => {
+  it("supports full contracts above the former 30,000-character limit while retaining a bounded maximum", () => {
+    expect(() => compileContract("# padding".repeat(3_400))).not.toThrow();
+    expect(() => compileContract("x".repeat(100_001))).toThrow("100,000");
+  });
+
+  it("rejects an empty contract", () => {
     expect(() => compileContract("   ")).toThrow("contract is required");
-    expect(() => compileContract("x".repeat(30_001))).toThrow("30,000");
   });
 });

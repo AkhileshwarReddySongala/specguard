@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const MAX_CONTRACT_CHARS = 100_000;
+
 export const severitySchema = z.enum(["MUST", "SHOULD"]);
 export const enforcementModeSchema = z.enum(["restricted-import", "restricted-syntax", "path-glob", "dependency", "required-test", "judgment"]);
 export const compilerSchema = z.enum(["nvidia", "gemini", "ollama", "deterministic-fallback"]);
@@ -13,7 +15,7 @@ export const compiledContractSchema = z.object({
   compiler: compilerSchema,
   compilerDiagnostics: z.array(providerDiagnosticSchema).max(20).default([]),
 });
-export const compileRequestSchema = z.object({ specMarkdown: z.string().min(1).max(30_000) });
+export const compileRequestSchema = z.object({ specMarkdown: z.string().min(1).max(MAX_CONTRACT_CHARS, "Contract must be 100,000 characters or fewer.") });
 export const changedFileSchema = z.object({ path: z.string(), content: z.string(), status: z.enum(["added", "modified", "removed"]) });
 export const prSnapshotSchema = z.object({ owner: z.string(), repo: z.string(), number: z.number().int().positive(), title: z.string(), unifiedDiff: z.string().max(250_000), changedFiles: z.array(changedFileSchema).max(25) });
 export const prContextRequestSchema = z.object({ prUrl: z.string().min(1).max(2_048) });

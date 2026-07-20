@@ -1,4 +1,4 @@
-import { compiledContractSchema, type CompiledCheck, type CompiledContract, type ContractRule } from "@/lib/contracts";
+import { compiledContractSchema, MAX_CONTRACT_CHARS, type CompiledCheck, type CompiledContract, type ContractRule } from "@/lib/contracts";
 
 const MAX_RULES = 500;
 const mustWords = /\b(must|never|prohibited|do not|don't|only)\b/i;
@@ -8,7 +8,7 @@ function targetAfter(line: string, expression: RegExp): string | undefined { ret
 
 export function normalizeContractRules(specMarkdown: string): ContractRule[] {
   if (!specMarkdown.trim()) throw new Error("A contract is required.");
-  if (specMarkdown.length > 30_000) throw new Error("Contract exceeds the 30,000-character limit.");
+  if (specMarkdown.length > MAX_CONTRACT_CHARS) throw new Error("Contract exceeds the 100,000-character limit.");
   return specMarkdown.split(/\r?\n/).flatMap((raw, index) => {
     const requirementQuote = raw.replace(/^\s*[-*\d.)]+\s*/, "").trim();
     if (!requirementQuote || requirementQuote.startsWith("#")) return [];
