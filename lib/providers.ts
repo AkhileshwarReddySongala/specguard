@@ -12,6 +12,7 @@ const COMPILE_BATCH_TIMEOUT_MS = 8_000;
 const NVIDIA_RPM_CEILING = 30;
 const NVIDIA_COOLDOWN_MS = 20 * 60_000;
 type Provider = "nvidia" | "gemini" | "ollama";
+type JudgmentProvider = Provider | "deterministic-only";
 type FailureCode = ProviderDiagnostic;
 class ProviderFailure extends Error { constructor(readonly code: FailureCode, message: string) { super(message); } }
 
@@ -124,8 +125,8 @@ async function withJudgmentProvider<T>(messages: unknown, schema: unknown, promp
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_MODEL) try { return { value: parse(await gemini(prompt, schema, 30_000, 2048)), provider: "gemini" }; } catch { /* Fall through. */ }
   return { value: parse(await ollama(messages, schema)), provider: "ollama" };
 }
-export async function judgeWithProviders(snapshot: PRSnapshot, contract: CompiledContract): Promise<{ findings: Finding[]; provider: Provider }> {
-  if (!contract.unexpressibleRules.length) return { findings: [], provider: "ollama" }; const context = buildJudgmentContext(snapshot, contract.unexpressibleRules); if (!context.changedFiles.length) return { findings: [], provider: "ollama" };
+export async function judgeWithProviders(snapshot: PRSnapshot, contract: CompiledContract): Promise<{ findings: Finding[]; provider: JudgmentProvider }> {
+  if (!contract.unexpressibleRules.length) return { findings: [], provider: "deterministic-only" }; const context = buildJudgmentContext(snapshot, contract.unexpressibleRules); if (!context.changedFiles.length) return { findings: [], provider: "deterministic-only" };
   const messages = [{ role: "system", content: judgmentSystem }, { role: "user", content: JSON.stringify(context) }]; const result = await withJudgmentProvider(messages, judgmentJsonSchema, `${judgmentSystem}\n${JSON.stringify(context)}`, (value) => responseSchema.parse(value)); const rules = new Map(contract.unexpressibleRules.map((rule) => [rule.id, rule]));
   const findings = result.value.findings.flatMap((entry, index) => { const file = snapshot.changedFiles.find((candidate) => candidate.path === entry.filePath); const rule = rules.get(entry.ruleId); if (!file || !rule || !changedLines(snapshot, entry.filePath).has(entry.line)) return []; return [{ id: `judgment-${index + 1}`, requirementQuote: rule.requirementQuote, specLine: rule.specLine, filePath: entry.filePath, line: entry.line, diffHunk: hunk(snapshot, entry.filePath, entry.line), violationType: entry.violationType, action: entry.action, source: "llm" as const, confidence: entry.confidence, preExisting: false }]; });
   return { findings, provider: result.provider };

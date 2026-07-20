@@ -17,6 +17,11 @@ describe("hosted provider boundary", () => {
     expect(contract.checks[0]).toMatchObject({ mode: "dependency", level: "MUST" });
   });
 
+  it("reports deterministic-only when every rule is enforceable without AI judgment", async () => {
+    const result = await judgeWithProviders(snapshot, compileContract("- Add a matching test file for this change."));
+    expect(result).toEqual({ findings: [], provider: "deterministic-only" });
+  });
+
   it("builds bounded context from changed hunks only", () => {
     const rules = compileContract(Array.from({ length: 12 }, (_, index) => `- Review rule ${index}.`).join("\n")).unexpressibleRules;
     const context = buildJudgmentContext(snapshot, rules);
