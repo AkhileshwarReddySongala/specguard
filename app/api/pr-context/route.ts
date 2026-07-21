@@ -1,0 +1,3 @@
+import { prContextRequestSchema, prContextSchema } from "@/lib/contracts";
+import { fetchPRContext } from "@/lib/github";
+export async function POST(request: Request) { try { const body = prContextRequestSchema.parse(await request.json()); return Response.json(prContextSchema.parse(await fetchPRContext(body.prUrl))); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Unable to load PR context." }, { status: 400 }); } }
