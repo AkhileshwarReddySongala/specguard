@@ -48,6 +48,10 @@ Import this repository into Vercel, add the production environment variables abo
 3. Click its finding to connect contract text to changed code.
 4. Paste a public PR and show contract discovery or the explicit sample-contract choice.
 5. Close with the redacted Codex session-governance demo.
+
+## Build Week submission
+
+The judge-ready submission packet, including Devpost field copy, a credential-free test path, a three-minute video script, and final checks, is in [docs/BUILD_WEEK_SUBMISSION.md](docs/BUILD_WEEK_SUBMISSION.md).
 ## Evidence boundary and validation records
 
 SpecGuard's deterministic compiler is deliberately narrow and entirely code-owned. It only emits JS/TS-safe checks from explicit contract templates: restricted imports or syntax, protected paths, named dependency changes, and scoped route-to-test requirements. Comments, documentation, Python-only rules, and ambiguous requirements stay as bounded AI judgment rules. Model output can report a grounded finding, but it cannot create or configure a deterministic check.
