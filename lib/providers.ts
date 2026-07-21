@@ -115,12 +115,18 @@ async function gemini(prompt: string, schema: unknown, options: RunOptions, maxT
   const key = process.env.GEMINI_API_KEY; const model = process.env.GEMINI_MODEL;
   if (!key || !model) throw new ProviderFailure("cooldown", "Gemini fallback is not configured.");
   const deadlineAt = deadlineFor(options);
-  let response: Response;
-  try { response = await timedFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0, maxOutputTokens: maxTokens } }) }, Math.min(30_000, Math.max(1_000, deadlineAt - now())), options.signal); }
-  catch (error) { if (error instanceof ProviderFailure) throw error; throw new ProviderFailure(failureCode(error), "Gemini inference timed out."); }
-  if (!response.ok) throw new ProviderFailure(response.status === 429 ? "rate_limited" : "invalid_output", `Gemini inference failed (${response.status}).`);
-  try { return JSON.parse((await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] }).candidates?.[0]?.content?.parts?.[0]?.text || "{}"); }
-  catch { throw new ProviderFailure("invalid_output", "Gemini returned invalid JSON."); }
+  const models = [...new Set([model, process.env.GEMINI_FALLBACK_MODEL || "gemma-4-26b-a4b-it"])];
+  let rateLimit: ProviderFailure | undefined;
+  for (const candidate of models) {
+    let response: Response;
+    try { response = await timedFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidate)}:generateContent?key=${encodeURIComponent(key)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0, maxOutputTokens: maxTokens } }) }, Math.min(30_000, Math.max(1_000, deadlineAt - now())), options.signal); }
+    catch (error) { if (error instanceof ProviderFailure) throw error; throw new ProviderFailure(failureCode(error), "Gemini inference timed out."); }
+    if (response.status === 429) { rateLimit = new ProviderFailure("rate_limited", "Gemini model rate limit reached."); continue; }
+    if (!response.ok) throw new ProviderFailure("invalid_output", `Gemini inference failed (${response.status}).`);
+    try { return JSON.parse((await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] }).candidates?.[0]?.content?.parts?.[0]?.text || "{}"); }
+    catch { throw new ProviderFailure("invalid_output", "Gemini returned invalid JSON."); }
+  }
+  throw rateLimit ?? new ProviderFailure("rate_limited", "Gemini model rate limit reached.");
 }
 async function ollama(messages: unknown, schema: unknown, options: RunOptions) {
   const base = process.env.OLLAMA_BASE_URL;
@@ -225,6 +231,12 @@ async function recoverJudgmentBatch(snapshot: PRSnapshot, batch: ContractRule[],
     const fallback = await judgeBatch(snapshot, batch, batchIndex, { ...options, skipNvidia: true });
     return mergeBatchResults([fallback], initial.diagnostics);
   }
+  // Give the hosted fallback its full remaining budget before multiplying failed
+  // NVIDIA work through split retries. Otherwise a pair of 45-second NVIDIA
+  // attempts can leave Gemini only milliseconds to respond.
+  options.onProgress?.({ phase: "judgment", completedRules, totalRules, completedBatches, totalBatches, status: "fallback" });
+  const fallback = await judgeBatch(snapshot, batch, batchIndex, { ...options, skipNvidia: true });
+  if (!fallback.unassessedRules) return mergeBatchResults([fallback], initial.diagnostics);
   options.onProgress?.({ phase: "judgment", completedRules, totalRules, completedBatches, totalBatches, status: "retrying" });
   const smallerBatches = chunk(batch, Math.ceil(batch.length / 2));
   const recovered: JudgmentBatchResult[] = [];

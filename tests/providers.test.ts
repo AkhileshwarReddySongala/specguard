@@ -52,12 +52,12 @@ describe("rate-aware hosted judgment boundary", () => {
     expect(calls).toBe(4); expect(progress).toContain("retrying"); expect(result.coverage).toMatchObject({ completedRules: 8, unassessedRules: 0, complete: true });
   });
 
-  it("hands split batches to Gemini only after their smaller NVIDIA retries fail", async () => {
+  it("hands a failed eight-rule NVIDIA batch to Gemini before split retries", async () => {
     process.env.NVIDIA_API_KEY = "test-key"; process.env.GEMINI_API_KEY = "gemini-key"; process.env.GEMINI_MODEL = "gemini-test"; let nvidiaCalls = 0; let geminiCalls = 0;
     globalThis.fetch = vi.fn(async (input) => { if (String(input).includes("integrate.api.nvidia.com")) { nvidiaCalls += 1; return new Response("gateway", { status: 504 }); } geminiCalls += 1; return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ findings: [] }) }] } }] }); }) as typeof fetch;
     const contract = compileContract(Array.from({ length: 8 }, (_, index) => `- Review fallback rule ${index}.`).join("\n"));
     const result = await judgeWithProviders(snapshot, contract, "all");
-    expect(nvidiaCalls).toBe(6); expect(geminiCalls).toBe(2); expect(result).toMatchObject({ provider: "gemini", coverage: { completedRules: 8, unassessedRules: 0, complete: true } });
+    expect(nvidiaCalls).toBe(2); expect(geminiCalls).toBe(1); expect(result).toMatchObject({ provider: "gemini", coverage: { completedRules: 8, unassessedRules: 0, complete: true } });
   });
   it("excludes only explicit nonmatching path rules in relevant mode", () => {
     const rules = compileContract("- Review src/a.ts changes.\n- Review docs/guide.md changes.\n- Review all risky changes.").unexpressibleRules;
