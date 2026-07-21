@@ -20,7 +20,15 @@ class ProviderFailure extends Error {
   constructor(readonly code: FailureCode, message: string, readonly diagnostics: ProviderDiagnostic[] = []) { super(message); }
 }
 
-const findingSchema = z.object({ ruleId: z.string(), filePath: z.string(), line: z.number().int().positive(), violationType: z.string(), action: z.string(), confidence: z.enum(["high", "low"]) });
+const repeatedNarrative = (value: string) => {
+  const words = value.toLowerCase().match(/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu) ?? [];
+  if (words.length < 4) return false;
+  const frequencies = new Map<string, number>();
+  for (const word of words) frequencies.set(word, (frequencies.get(word) ?? 0) + 1);
+  return words.every((word) => word === words[0]) || [...frequencies.values()].some((count) => count >= 4 && count / words.length >= 0.45);
+};
+const modelNarrative = (max: number) => z.string().trim().min(3).max(max).refine((value) => !/[\r\n]/.test(value), "Model evidence text must be one line.").refine((value) => !repeatedNarrative(value), "Model evidence text repeats itself.");
+const findingSchema = z.object({ ruleId: z.string(), filePath: z.string(), line: z.number().int().positive(), violationType: modelNarrative(180), action: modelNarrative(300), confidence: z.enum(["high", "low"]) });
 const responseSchema = z.object({ findings: z.array(findingSchema).max(10) });
 const judgmentJsonSchema = { type: "object", properties: { findings: { type: "array", maxItems: 10, items: { type: "object", properties: { ruleId: { type: "string" }, filePath: { type: "string" }, line: { type: "integer" }, violationType: { type: "string" }, action: { type: "string" }, confidence: { type: "string", enum: ["high", "low"] } }, required: ["ruleId", "filePath", "line", "violationType", "action", "confidence"] } } }, required: ["findings"] };
 const judgmentSystem = "Return only JSON matching the supplied schema. Assess only the supplied changed lines. A finding must copy a supplied ruleId, file path, and changed line number exactly. Never report a pre-existing line, invent evidence, or create a finding when the changed code complies.";
@@ -191,14 +199,24 @@ async function withJudgmentProvider<T>(messages: unknown, schema: unknown, promp
   }
   if (!allowFallback) throw new ProviderFailure("cooldown", "No NVIDIA judgment provider is configured.", diagnostics);
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_MODEL) {
-    try { return { value: parse(await gemini(prompt, schema, options, 2048)), provider: "gemini", diagnostics }; }
-    catch (error) { const code = failureCode(error); diagnostics.push(code); if (code === "cancelled") throw error; }
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try { return { value: parse(await gemini(prompt, schema, options, 2048)), provider: "gemini", diagnostics }; }
+      catch (error) {
+        const code = failureCode(error); diagnostics.push(code);
+        if (code === "cancelled") throw error;
+        if (!["gateway_timeout", "timeout", "invalid_output"].includes(code) || attempt === 1) break;
+      }
+    }
   }
-  try { return { value: parse(await ollama(messages, schema, options)), provider: "ollama", diagnostics }; }
-  catch (error) {
-    const code = failureCode(error); diagnostics.push(code);
-    throw new ProviderFailure(code, "No AI judgment provider completed this batch.", diagnostics);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try { return { value: parse(await ollama(messages, schema, options)), provider: "ollama", diagnostics }; }
+    catch (error) {
+      const code = failureCode(error); diagnostics.push(code);
+      if (code === "cancelled") throw error;
+      if (!["gateway_timeout", "timeout", "invalid_output"].includes(code) || attempt === 1) throw new ProviderFailure(code, "No AI judgment provider completed this batch.", diagnostics);
+    }
   }
+  throw new ProviderFailure("invalid_output", "No AI judgment provider completed this batch.", diagnostics);
 }
 async function judgeBatch(snapshot: PRSnapshot, rules: ContractRule[], batchIndex: number, options: RunOptions, allowFallback = true): Promise<JudgmentBatchResult> {
   const context = buildJudgmentContext(snapshot, rules);

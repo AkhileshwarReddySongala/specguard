@@ -17,6 +17,28 @@ describe("provider fallback behavior", () => {
     expect(result.coverage.complete).toBe(true); expect(calls).toBe(2);
   });
 
+  it("retries repetitive model prose instead of emitting a corrupted AI finding", async () => {
+    process.env.NVIDIA_API_KEY = "test-key"; let calls = 0;
+    const repeated = "sibling-ish ".repeat(40);
+    globalThis.fetch = vi.fn(async () => { calls += 1; return calls === 1 ? nvidiaResponse({ findings: [{ ruleId: "rule-1", filePath: "src/a.ts", line: 1, violationType: repeated, action: "Move the test.", confidence: "high" }] }) : nvidiaResponse({ findings: [] }); }) as typeof fetch;
+    const result = await judgeWithProviders(snapshot, compileContract("- Review risky changes."));
+    expect(calls).toBe(2); expect(result).toMatchObject({ findings: [], coverage: { complete: true, unassessedRules: 0 } });
+  });
+
+  it("marks a batch unassessed when its retry also returns repetitive model prose", async () => {
+    process.env.NVIDIA_API_KEY = "test-key"; delete process.env.GEMINI_API_KEY; delete process.env.GEMINI_MODEL; delete process.env.OLLAMA_BASE_URL;
+    const repeated = "sibling-ish ".repeat(40);
+    globalThis.fetch = vi.fn(async () => nvidiaResponse({ findings: [{ ruleId: "rule-1", filePath: "src/a.ts", line: 1, violationType: repeated, action: "Move the test.", confidence: "high" }] })) as typeof fetch;
+    const result = await judgeWithProviders(snapshot, compileContract("- Review risky changes."));
+    expect(result.findings).toEqual([]); expect(result.coverage).toMatchObject({ complete: false, completedRules: 0, unassessedRules: 1 }); expect(result.diagnostics).toContain("invalid_output");
+  });
+  it("retries repetitive Gemini prose before accepting the batch", async () => {
+    delete process.env.NVIDIA_API_KEY; process.env.GEMINI_API_KEY = "gemini-key"; process.env.GEMINI_MODEL = "gemini-test"; let calls = 0;
+    const repeated = "sibling-ish ".repeat(40);
+    globalThis.fetch = vi.fn(async () => { calls += 1; const value = calls === 1 ? { findings: [{ ruleId: "rule-1", filePath: "src/a.ts", line: 1, violationType: repeated, action: "Move the test.", confidence: "high" }] } : { findings: [] }; return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] } }] }); }) as typeof fetch;
+    const result = await judgeWithProviders(snapshot, compileContract("- Review risky changes."));
+    expect(calls).toBe(2); expect(result).toMatchObject({ provider: "gemini", findings: [], coverage: { complete: true } });
+  });
   it("hands a failed NVIDIA judgment batch to configured Gemini", async () => {
     process.env.NVIDIA_API_KEY = "test-key"; process.env.GEMINI_API_KEY = "gemini-key"; process.env.GEMINI_MODEL = "gemini-test"; let nvidiaCalls = 0; let geminiCalls = 0;
     globalThis.fetch = vi.fn(async (input) => { if (String(input).includes("integrate.api.nvidia.com")) { nvidiaCalls += 1; return new Response("gateway", { status: 504 }); } geminiCalls += 1; return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ findings: [] }) }] } }] }); }) as typeof fetch;

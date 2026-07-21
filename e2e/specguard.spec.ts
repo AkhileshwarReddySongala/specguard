@@ -14,7 +14,7 @@ test("loads a verified curated preset into the contract editor", async ({ page }
 });
 
 test("stages compilation and synchronizes exact evidence lines", async ({ page }) => {
-  await openDemoResult(page); const first = page.getByRole("option").first(); await first.click(); await expect(first).toHaveAttribute("aria-selected", "true"); await expect(page.locator("[data-line='2'].highlight")).toBeVisible(); await expect(page.locator("[data-file='app/page.tsx'][data-line='1'].highlight")).toBeVisible(); await expect(page.locator(".connector span")).toHaveText("rule §2 → line 1"); await expect(page.locator(".badge.solid")).toHaveText("DETERMINISTIC"); await expect(page.getByText("AI JUDGMENT · HIGH")).toBeVisible();
+  await openDemoResult(page); const first = page.getByRole("option").first(); await first.click(); await expect(first).toHaveAttribute("aria-selected", "true"); await expect(page.locator("[data-line='2'].highlight")).toBeVisible(); await expect(page.locator("[data-file='app/page.tsx'][data-line='1'].highlight")).toBeVisible(); await expect(page.locator(".connector span")).toHaveText("rule §2 → line 1"); await expect(page.locator(".badge.solid")).toHaveText("DETERMINISTIC"); await expect(page.getByText("AI JUDGMENT · HIGH")).toBeVisible(); await expect(page.getByRole("option").nth(1)).toContainText("Contract: Review risky changes.");
 });
 
 test("shows coverage controls and streamed AI progress", async ({ page }) => {
