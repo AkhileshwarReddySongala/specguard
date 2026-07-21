@@ -6,7 +6,7 @@
 
 ## Devpost form
 
-Use this packet to fill the OpenAI Build Week form. Replace every bracketed value before submitting.
+Use this packet to fill the OpenAI Build Week form. The repository and live demo entries below are ready; replace every bracketed personal or session value before submitting.
 
 | Devpost field | Value |
 | --- | --- |
@@ -15,7 +15,19 @@ Use this packet to fill the OpenAI Build Week form. Replace every bracketed valu
 | Category | `Developer Tools` |
 | Code repository | `https://github.com/AkhileshwarReddySongala/specguard` |
 | /feedback Session ID | `[Paste the Session ID from the Codex session where the core implementation was built]` |
+| Live project URL | `https://specguard-sepia.vercel.app` |
 | Project URL / judge instructions | See [Judge testing path](#judge-testing-path). |
+
+## Delivery status
+
+- [x] Public code repository: [AkhileshwarReddySongala/specguard](https://github.com/AkhileshwarReddySongala/specguard)
+- [x] MIT license included
+- [x] Public live demo: [specguard-sepia.vercel.app](https://specguard-sepia.vercel.app)
+- [x] Credential-free deterministic proof scenarios and local test instructions
+- [x] Codex collaboration record: [CODEX_COLLABORATION.md](CODEX_COLLABORATION.md)
+- [ ] Public YouTube video under three minutes
+- [ ] Verified `/feedback` Session ID
+- [ ] Devpost submitter type and country of residence
 
 ## Project title and tagline
 
@@ -40,7 +52,7 @@ Edit this draft in your own voice before publishing it on Devpost.
 The committed deterministic demos work without GitHub or AI credentials.
 
 ```bash
-npm install
+npm ci
 npm run lint
 npm test
 npm run dev
@@ -65,6 +77,8 @@ Codex was used as a collaborative engineering partner to:
 
 The repository preserves this work in its commit history and a redacted session-log fixture. Before submission, retrieve the `/feedback` Session ID from the Codex session that contains the core work and confirm the session model history supports any GPT-5.6 claim made in the form or video.
 
+For the concise engineering record, see [CODEX_COLLABORATION.md](CODEX_COLLABORATION.md).
+
 ## Three-minute demo script
 
 **0:00–0:18 — Problem.** “AI-generated code can look review-clean while violating a rule people already wrote. SpecGuard is governance, not another code review.”
@@ -87,7 +101,7 @@ The repository preserves this work in its commit history and a redacted session-
 
 - [ ] Replace the submitter type, country, and `/feedback` Session ID placeholders.
 - [ ] Record and publish a public YouTube video under three minutes with voiceover covering the product, Codex, and verified GPT-5.6 use.
-- [ ] Add an open-source license before making the repository public.
+- [x] Confirm the public repository includes its MIT license.
 - [ ] If the repository stays private, share it with `testing@devpost.com` and `build-week-event@openai.com`.
 - [ ] Run `npm run lint`, `npm test`, `npx tsc --noEmit`, `npm run test:e2e`, and `npm run build`.
 - [ ] Confirm every team member is added to Devpost and has accepted the invitation.

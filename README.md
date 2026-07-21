@@ -2,10 +2,22 @@
 
 SpecGuard proves whether AI-written code matches what humans authorized. It compiles an `AGENTS.md` contract, analyzes a public GitHub pull request, and returns a requirement-to-diff evidence chain with a merge recommendation.
 
+## Try it now
+
+Use the deployed demo at [specguard-sepia.vercel.app](https://specguard-sepia.vercel.app). No account, GitHub token, or model key is needed to run the three authored proof scenarios:
+
+| Scenario | What it proves | Expected result |
+| --- | --- | --- |
+| **Proof: forbidden import** | A code-clean change can still violate an explicit dependency rule. | `MERGE BLOCKED` |
+| **Proof: protected path** | A protected workflow change is caught at the exact changed line. | `MERGE BLOCKED` |
+| **Proof: missing test** | A scoped `SHOULD` test requirement is advisory rather than a merge block. | `CHANGES REQUIRED` |
+
+Open **AUTHORED DEMO SCENARIOS**, choose a scenario, compile the contract, select the default **Judge relevant rules** coverage option, then analyze. Select the finding to see its contract line and changed-code line synchronize.
+
 ## Run locally
 
 ```bash
-npm install
+npm ci
 copy .env.example .env.local
 npm run lint
 npm test
@@ -35,11 +47,11 @@ The core contract is staged: `/api/compile` streams only a final validated contr
 
 ## Codex collaboration and session governance
 
-This project was built with Codex. The self-governance demo is intentionally fixture-based and redacted: production never reads a developer's local Codex directory. Session JSONL is parsed only when supplied to the app, then shown as the same contract-to-evidence chain used for PR findings.
+This project was built with Codex as a collaborative engineering partner. The self-governance demo is intentionally fixture-based and redacted: production never reads a developer's local Codex directory. Session JSONL is parsed only when supplied to the app, then shown as the same contract-to-evidence chain used for PR findings. See the [Codex collaboration record](docs/CODEX_COLLABORATION.md) for the implementation boundary, testing record, and the remaining verified-session item required by Devpost.
 
 ## Deploy to Vercel
 
-Import this repository into Vercel, add the production environment variables above, and deploy `master`. Do not add Ollama variables to Vercel. The public demo remains usable if no provider credentials are configured because fixtures and deterministic partial results are committed.
+Import this repository into Vercel, add the production environment variables above, and deploy `main`. Do not add Ollama variables to Vercel. The public demo remains usable if no provider credentials are configured because fixtures and deterministic partial results are committed.
 
 ## Video outline
 
@@ -49,9 +61,10 @@ Import this repository into Vercel, add the production environment variables abo
 4. Paste a public PR and show contract discovery or the explicit sample-contract choice.
 5. Close with the redacted Codex session-governance demo.
 
-## Build Week submission
+## OpenAI Build Week submission
 
-The judge-ready submission packet, including Devpost field copy, a credential-free test path, a three-minute video script, and final checks, is in [docs/BUILD_WEEK_SUBMISSION.md](docs/BUILD_WEEK_SUBMISSION.md).
+The [OpenAI Build Week submission packet](docs/BUILD_WEEK_SUBMISSION.md) includes Devpost field copy, a credential-free judge path, a three-minute video script, and the final user-provided items still required to submit.
+
 ## Evidence boundary and validation records
 
 SpecGuard's deterministic compiler is deliberately narrow and entirely code-owned. It only emits JS/TS-safe checks from explicit contract templates: restricted imports or syntax, protected paths, named dependency changes, and scoped route-to-test requirements. Comments, documentation, Python-only rules, and ambiguous requirements stay as bounded AI judgment rules. Model output can report a grounded finding, but it cannot create or configure a deterministic check.
